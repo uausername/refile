@@ -116,6 +116,44 @@ def rename_file(file_path, description):
     except OSError as e:
         print(f"Ошибка переименования {file_path} в {new_path}: {e}")
 
+# Функция для проверки осмысленности имени файла (эвристика)
+def is_filename_meaningful(filename):
+    """Проверяет, является ли имя файла 'осмысленным' по эвристикам."""
+    try:
+        base_name, _ = os.path.splitext(filename)
+
+        # 1. Проверка длины
+        if len(base_name) < 5:
+            return False
+
+        # 2. Проверка на распространенные неосмысленные паттерны
+        # (Регулярные выражения для имен типа IMG_1234, DSC_5678, Screenshot..., только цифры, GUID)
+        non_meaningful_patterns = [
+            r'^IMG[-_]?\d+$',
+            r'^DSCN?[-_]?\d+$',
+            r'^Screenshot[-_]?.*',
+            r'^\d+$', # Только цифры
+            r'^[a-f0-9]{8}-([a-f0-9]{4}-){3}[a-f0-9]{12}$' # GUID
+        ]
+        for pattern in non_meaningful_patterns:
+            if re.match(pattern, base_name, re.IGNORECASE):
+                return False
+
+        # 3. Проверка на наличие нескольких "слов"
+        cleaned_name = re.sub(r'[^a-zA-Z\s_-]+', '', base_name)
+        words = [word for word in re.split(r'[\s_-]+', cleaned_name) if len(word) >= 2]
+
+        # Считаем осмысленным, если есть хотя бы 2 таких слова
+        if len(words) >= 2:
+            return True
+
+    except Exception as e:
+        print(f"Ошибка при проверке имени файла {filename}: {e}")
+        return False # В случае ошибки считаем неосмысленным, чтобы обработать
+
+    # Если ни одна проверка не сработала, считаем неосмысленным
+    return False
+
 # Основная функция для обработки директории
 def process_directory(directory, img_processor, img_model, device):
     """Обрабатывает файлы (.txt, .docx, .pdf, .jpg, .png) в директории."""
@@ -127,6 +165,13 @@ def process_directory(directory, img_processor, img_model, device):
         for file in files:
             file_path = os.path.join(root, file)
             file_lower = file.lower()
+
+            # --- Проверка имени файла ПЕРЕД обработкой ---
+            if is_filename_meaningful(file):
+                print(f"Пропуск файла (осмысленное имя): {file_path}")
+                continue # Переходим к следующему файлу
+            # ---------------------------------------------
+
             description = None
             
             try:
