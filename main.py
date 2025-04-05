@@ -36,15 +36,23 @@ def extract_text_from_pdf(file_path):
         print(f"Ошибка при чтении PDF {file_path}: {e}")
         return ""
 
-# Функция для получения описания NER из текста
-def get_ner_description_from_text(text, ner_model):
-    """Извлекает ключевые сущности из предоставленного текста для имени файла."""
+# Функция для получения описания-саммари из текста
+def get_summary_description_from_text(text, summarizer):
+    """Генерирует краткое саммари из текста для имени файла."""
     if not text:
-        return "text_file" # Возвращаем дефолтное имя, если текст пустой
-    text_snippet = text[:1000] # Обрезаем до 1000 символов для NER
-    entities = ner_model(text_snippet)
-    unique_entities = set(entity['word'] for entity in entities)
-    description = "_".join(unique_entities) if unique_entities else "text_file"
+        return "text_file" 
+    
+    # Увеличиваем фрагмент текста для лучшего контекста
+    text_to_summarize = text[:1024] 
+    
+    try:
+        # Генерируем саммари (параметры пока те же, можно подбирать)
+        summary = summarizer(text_to_summarize, max_length=30, min_length=5, do_sample=False)
+        description = summary[0]['summary_text']
+    except Exception as e:
+        print(f"Ошибка при генерации саммари: {e}")
+        description = "text_summary_error"
+
     return description
 
 # Функция для обработки изображений
@@ -99,7 +107,7 @@ def rename_file(file_path, description):
         print(f"Ошибка переименования {file_path} в {new_path}: {e}")
 
 # Основная функция для обработки директории
-def process_directory(directory, ner_model, img_processor, img_model):
+def process_directory(directory, summarizer, img_processor, img_model):
     """Обрабатывает файлы (.txt, .docx, .pdf, .jpg, .png) в директории."""
     supported_text_ext = ('.txt', '.docx', '.pdf')
     supported_img_ext = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff')
@@ -127,7 +135,7 @@ def process_directory(directory, ner_model, img_processor, img_model):
                     print(f"  Извлечено символов: {len(text)} из {file_path}") # Debug print
 
                     if text: # Если текст успешно извлечен
-                        description = get_ner_description_from_text(text, ner_model)
+                        description = get_summary_description_from_text(text, summarizer)
                     else:
                         print(f"Не удалось извлечь текст из {file_path}")
                         description = "empty_or_error" # Запасное имя
@@ -152,7 +160,8 @@ def process_directory(directory, ner_model, img_processor, img_model):
 # Запуск программы
 if __name__ == "__main__":
     print("Загрузка моделей...")
-    ner_pipeline = pipeline("ner", model="dslim/bert-base-NER", aggregation_strategy="simple")
+    # Заменяем модель на google/pegasus-xsum
+    summarization_pipeline = pipeline("summarization", model="google/pegasus-xsum") 
     blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
     blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
     print("Модели загружены.")
@@ -168,5 +177,5 @@ if __name__ == "__main__":
         sys.exit(1)
     else:
         print(f"Начинаю обработку директории: {directory}")
-        process_directory(directory, ner_pipeline, blip_processor, blip_model) # Передаем модели
+        process_directory(directory, summarization_pipeline, blip_processor, blip_model) # Передаем модели
         print("Обработка завершена.") 
