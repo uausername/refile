@@ -1,5 +1,5 @@
-# Используем официальный образ Python
-FROM python:3.9-slim
+# Используем официальный образ PyTorch с CUDA 11.8 и Python 3.10
+FROM pytorch/pytorch:2.1.0-cuda11.8-cudnn8-runtime
 
 # Устанавливаем рабочую директорию внутри контейнера
 WORKDIR /app
@@ -7,10 +7,14 @@ WORKDIR /app
 # Копируем файл зависимостей
 COPY requirements.txt .
 
-# Устанавливаем зависимости
-# --no-cache-dir чтобы не хранить кэш pip и уменьшить размер образа
-# torch может требовать дополнительных опций или версии CPU/GPU, но для базовой функциональности попробуем так
-RUN pip install --no-cache-dir -r requirements.txt
+# Устанавливаем основные зависимости из requirements.txt
+# PyTorch уже есть в базовом образе, но могут потребоваться другие версии. 
+# Уточняем установку torch/torchvision/torchaudio с нужной версией CUDA на всякий случай
+# (Хотя в образе pytorch/pytorch он уже должен быть правильным)
+RUN pip install --no-cache-dir -r requirements.txt 
+# Если установка torch из requirements вызывает проблемы, можно закомментировать его там
+# и использовать команду установки с сайта PyTorch:
+# RUN pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
 
 # Копируем скрипт Python в рабочую директорию
 COPY main.py .

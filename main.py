@@ -9,6 +9,7 @@ import docx  # Для .docx файлов
 import fitz  # PyMuPDF, для .pdf файлов
 import sys   # Для sys.exit
 import yake # Добавляем импорт YAKE
+import torch # Добавляем импорт torch
 
 # Функция для извлечения текста из DOCX
 def extract_text_from_docx(file_path):
@@ -63,17 +64,19 @@ def get_keywords_description(text):
     return description
 
 # Функция для обработки изображений
-def process_image_file(file_path, processor, model):
-    """Генерирует подпись к изображению."""
+def process_image_file(file_path, processor, model, device):
+    """Генерирует подпись к изображению, используя указанное устройство (CPU/GPU)."""
     try:
         image = Image.open(file_path).convert("RGB")
-        inputs = processor(image, return_tensors="pt")
+        # Перемещаем входные данные на device
+        inputs = processor(image, return_tensors="pt").to(device)
+        # Модель уже должна быть на нужном устройстве к этому моменту
         out = model.generate(**inputs)
         description = processor.decode(out[0], skip_special_tokens=True)
         return description
     except Exception as e:
         print(f"Ошибка при обработке изображения {file_path}: {e}")
-        return "image_file" # Дефолтное имя при ошибке
+        return "image_file"
 
 # Функция для очистки имени файла
 def clean_filename(description):
@@ -114,12 +117,10 @@ def rename_file(file_path, description):
         print(f"Ошибка переименования {file_path} в {new_path}: {e}")
 
 # Основная функция для обработки директории
-def process_directory(directory, img_processor, img_model):
+def process_directory(directory, img_processor, img_model, device):
     """Обрабатывает файлы (.txt, .docx, .pdf, .jpg, .png) в директории."""
     supported_text_ext = ('.txt', '.docx', '.pdf')
     supported_img_ext = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff')
-
-    # Убрали загрузку модели саммаризации, YAKE не требует тяжелых моделей
 
     for root, _, files in os.walk(directory):
         print(f"Сканирование директории: {root}")
@@ -144,14 +145,14 @@ def process_directory(directory, img_processor, img_model):
                     print(f"  Извлечено символов: {len(text)} из {file_path}")
 
                     if text:
-                        description = get_keywords_description(text) # Используем YAKE
+                        description = get_keywords_description(text)
                     else:
                         print(f"Не удалось извлечь текст из {file_path}")
                         description = "empty_or_error"
 
                 # Обработка изображений
                 elif file_lower.endswith(supported_img_ext):
-                    description = process_image_file(file_path, img_processor, img_model)
+                    description = process_image_file(file_path, img_processor, img_model, device)
                 
                 else:
                     print(f"Пропуск файла (неподдерживаемый формат): {file_path}")
@@ -168,14 +169,18 @@ def process_directory(directory, img_processor, img_model):
 
 # Запуск программы
 if __name__ == "__main__":
+    # --- Определение устройства ---
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Используемое устройство: {device.upper()}")
+    # --------------------------
+
     print("Загрузка моделей...")
-    # Убрали загрузку модели саммаризации/NER
     # YAKE не требует предварительной загрузки тяжелых моделей
-    
-    # Добавляем use_fast=True при загрузке процессора изображений
-    blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base", use_fast=True) 
-    blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
-    print("Модели для изображений загружены.")
+
+    blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base", use_fast=True)
+    # Загружаем модель и сразу перемещаем на нужное устройство
+    blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(device)
+    print(f"Модели для изображений загружены на {device.upper()}.")
 
     default_dir = "."
     directory = os.environ.get("DATA_DIR", default_dir)
@@ -185,6 +190,6 @@ if __name__ == "__main__":
         sys.exit(1)
     else:
         print(f"Начинаю обработку директории: {directory}")
-        # Убрали передачу текстовой модели
-        process_directory(directory, blip_processor, blip_model)
+        # Передаем device в process_directory
+        process_directory(directory, blip_processor, blip_model, device)
         print("Обработка завершена.") 
