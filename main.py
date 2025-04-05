@@ -171,7 +171,9 @@ if __name__ == "__main__":
     print("Загрузка моделей...")
     # Убрали загрузку модели саммаризации/NER
     # YAKE не требует предварительной загрузки тяжелых моделей
-    blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+    
+    # Добавляем use_fast=True при загрузке процессора изображений
+    blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base", use_fast=True) 
     blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
     print("Модели для изображений загружены.")
 
