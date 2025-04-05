@@ -8,6 +8,7 @@ from transformers import pipeline, BlipProcessor, BlipForConditionalGeneration
 import docx  # Для .docx файлов
 import fitz  # PyMuPDF, для .pdf файлов
 import sys   # Для sys.exit
+import yake # Добавляем импорт YAKE
 
 # Функция для извлечения текста из DOCX
 def extract_text_from_docx(file_path):
@@ -36,22 +37,28 @@ def extract_text_from_pdf(file_path):
         print(f"Ошибка при чтении PDF {file_path}: {e}")
         return ""
 
-# Функция для получения описания-саммари из текста
-def get_summary_description_from_text(text, summarizer):
-    """Генерирует краткое саммари из текста для имени файла."""
+# Функция для получения описания на основе ключевых слов
+def get_keywords_description(text):
+    """Извлекает ключевые слова из текста для имени файла."""
     if not text:
-        return "text_file" 
-    
-    # Увеличиваем фрагмент текста для лучшего контекста
-    text_to_summarize = text[:1024] 
-    
-    try:
-        # Генерируем саммари (параметры пока те же, можно подбирать)
-        summary = summarizer(text_to_summarize, max_length=30, min_length=5, do_sample=False)
-        description = summary[0]['summary_text']
-    except Exception as e:
-        print(f"Ошибка при генерации саммари: {e}")
-        description = "text_summary_error"
+        return "text_file"
+
+    # Инициализируем YAKE! экстрактор
+    # language="en" - язык текста (можно указать другие, если нужно)
+    # max_ngram_size=3 - максимальная длина фразы в словах
+    # deduplication_threshold=0.9 - порог для удаления похожих фраз
+    # numOfKeywords=5 - максимальное количество извлекаемых ключевых фраз
+    kw_extractor = yake.KeywordExtractor(lan="en", n=3, dedupLim=0.9, top=5, features=None)
+    keywords = kw_extractor.extract_keywords(text)
+    keyword_phrases = [kw[0] for kw in keywords]
+    description = "_".join(keyword_phrases) if keyword_phrases else "text_keywords_not_found"
+
+    # --- Debug Print ---
+    # Выполняем replace отдельно, чтобы избежать ошибки SyntaxError в f-string
+    text_snippet_for_print = text[:200].replace('\n', ' ')
+    print(f"  >>> Текст для YAKE (начало): '{text_snippet_for_print}...'")
+    print(f"  <<< Извлеченные ключевые слова: {keyword_phrases}")
+    # --- End Debug Print ---
 
     return description
 
@@ -107,17 +114,19 @@ def rename_file(file_path, description):
         print(f"Ошибка переименования {file_path} в {new_path}: {e}")
 
 # Основная функция для обработки директории
-def process_directory(directory, summarizer, img_processor, img_model):
+def process_directory(directory, img_processor, img_model):
     """Обрабатывает файлы (.txt, .docx, .pdf, .jpg, .png) в директории."""
     supported_text_ext = ('.txt', '.docx', '.pdf')
     supported_img_ext = ('.jpg', '.jpeg', '.png', '.bmp', '.gif', '.tiff')
+
+    # Убрали загрузку модели саммаризации, YAKE не требует тяжелых моделей
 
     for root, _, files in os.walk(directory):
         print(f"Сканирование директории: {root}")
         for file in files:
             file_path = os.path.join(root, file)
             file_lower = file.lower()
-            description = None # Сбрасываем описание для каждого файла
+            description = None
             
             try:
                 print(f"Обработка файла: {file_path}")
@@ -132,13 +141,13 @@ def process_directory(directory, summarizer, img_processor, img_model):
                     elif file_lower.endswith('.pdf'):
                         text = extract_text_from_pdf(file_path)
                     
-                    print(f"  Извлечено символов: {len(text)} из {file_path}") # Debug print
+                    print(f"  Извлечено символов: {len(text)} из {file_path}")
 
-                    if text: # Если текст успешно извлечен
-                        description = get_summary_description_from_text(text, summarizer)
+                    if text:
+                        description = get_keywords_description(text) # Используем YAKE
                     else:
                         print(f"Не удалось извлечь текст из {file_path}")
-                        description = "empty_or_error" # Запасное имя
+                        description = "empty_or_error"
 
                 # Обработка изображений
                 elif file_lower.endswith(supported_img_ext):
@@ -160,22 +169,20 @@ def process_directory(directory, summarizer, img_processor, img_model):
 # Запуск программы
 if __name__ == "__main__":
     print("Загрузка моделей...")
-    # Заменяем модель на google/pegasus-xsum
-    summarization_pipeline = pipeline("summarization", model="google/pegasus-xsum") 
+    # Убрали загрузку модели саммаризации/NER
+    # YAKE не требует предварительной загрузки тяжелых моделей
     blip_processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
     blip_model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base")
-    print("Модели загружены.")
+    print("Модели для изображений загружены.")
 
-    # Получаем путь к директории из переменной окружения DATA_DIR,
-    # или используем текущую директорию, если запускаем не в Docker
-    default_dir = "." # Текущая директория по умолчанию
+    default_dir = "."
     directory = os.environ.get("DATA_DIR", default_dir)
 
-    # Проверка, существует ли директория
     if not os.path.isdir(directory):
         print(f"Ошибка: Директория '{directory}' не найдена.")
         sys.exit(1)
     else:
         print(f"Начинаю обработку директории: {directory}")
-        process_directory(directory, summarization_pipeline, blip_processor, blip_model) # Передаем модели
+        # Убрали передачу текстовой модели
+        process_directory(directory, blip_processor, blip_model)
         print("Обработка завершена.") 

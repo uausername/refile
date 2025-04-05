@@ -2,4 +2,5 @@ transformers
 torch
 Pillow
 python-docx
-PyMuPDF 
+PyMuPDF
+yake 
